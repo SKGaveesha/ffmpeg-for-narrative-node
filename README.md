@@ -26,6 +26,3 @@ Run a workflow again with a newer FFmpeg version. The release tag stays the same
 
 Neither build uses `--enable-gpl` or `--enable-nonfree`, and both workflows fail if the finished program says otherwise. LGPL asks us to let anyone who has the binary get the source and the build recipe: each release carries the FFmpeg source tarball and a `BUILD-INFO` file naming the exact scripts and configure line. Nothing is inside the Navigator installer; it is downloaded from that repository.
 
-## Not tested on real machines
-
-The Mac workflow compiles on Mac runners and the Windows one cross-compiles on Linux; neither has been run yet, so the first run may need a small fix. After it, on a clean Windows PC and on both an Apple Silicon and an Intel Mac, check that `ffmpeg -version` and `ffplay -version` run, that Navigator downloads the tools, plays audio, and that an export with a hardware encoder works.
