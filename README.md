@@ -1,8 +1,8 @@
 # Our own ffmpeg, for Windows and Mac
 
-Navigator's helper downloads ffmpeg, ffprobe and ffplay on first run, from a public GitHub repository that we control: `SKGaveesha/narrative-node-ffmpeg-builds`. Both builds are LGPL-only, so a paid product can use them. Owning the hosting means nobody else can rename or retire the file a customer's helper is looking for.
+Navigator's Sentinel downloads ffmpeg, ffprobe and ffplay on first run, from a public GitHub repository that we control: `SKGaveesha/narrative-node-ffmpeg-builds`. Both builds are LGPL-only, so a paid product can use them. Owning the hosting means nobody else can rename or retire the file a customer's helper is looking for.
 
-| | Workflow | How | Release the helper reads | File |
+| | Workflow | How | Release the Sentinel reads | File |
 |:--|:--|:--|:--|:--|
 | Windows x64 | `build-ffmpeg-windows.yml` | BtbN's open-source build scripts, pinned to one commit | `win-ffmpeg-8.1` | `ffmpeg-n8.1-win64-lgpl.zip` |
 | macOS arm64, x64 | `build-ffmpeg-mac.yml` | compiled directly on Mac runners | `mac-ffmpeg-8.1` | `ffmpeg-n8.1-macos-<arch>-lgpl.zip` |
