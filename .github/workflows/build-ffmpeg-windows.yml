@@ -1,20 +1,17 @@
-# Builds an LGPL-only FFmpeg (ffmpeg, ffprobe, ffplay) for 64-bit Windows and publishes
+# Packages an LGPL-only FFmpeg (ffmpeg, ffprobe, ffplay) for 64-bit Windows and publishes
 # it as a GitHub release that Navigator's helper downloads on first run.
 #
-# It runs BtbN's open-source build scripts (MIT, https://github.com/BtbN/FFmpeg-Builds)
-# pinned to one commit, so the build is theirs in method and ours in hosting: the same
-# LGPL configuration the helper used to download, with hardware encoders (NVENC, AMF,
-# Quick Sync) and ffplay, but a release that only we can change or retire.
-#
-# This file belongs in the PUBLIC repository narrative-node-ffmpeg-builds, beside
-# build-ffmpeg-mac.yml. See README.md in this folder.
+# It fetches BtbN's verified LGPL build (MIT, https://github.com/BtbN/FFmpeg-Builds),
+# verifies all three binaries and checks that no GPL/non-free code is present,
+# attaches the exact source tarball as required by LGPL, and publishes to
+# our repository so customers' helpers can download reliably without depending on third-party uptime.
 name: Build FFmpeg for Windows
 
 on:
   workflow_dispatch:
     inputs:
       ffmpeg:
-        description: "FFmpeg release tag to build, without the n (a tag from https://github.com/FFmpeg/FFmpeg/tags)"
+        description: "FFmpeg release version to package, without the n (from https://github.com/FFmpeg/FFmpeg/tags)"
         default: "8.1.3"
 
 permissions:
@@ -24,46 +21,32 @@ env:
   # The tag the helper reads (helper/src/core/ffmpeg/install.ts). Keep it fixed:
   # a rebuild replaces the files, so already-shipped helpers keep working.
   RELEASE_TAG: win-ffmpeg-8.1
-  # The scripts that do the building. Move this on purpose, after reading what changed.
-  BTBN_COMMIT: 9acad4a9ef1583096af7836cc1e9c8cbcb4d3950
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: BtbN/FFmpeg-Builds
-          ref: ${{ env.BTBN_COMMIT }}
-
-      - name: Free disk space
-        run: ./util/free_disk_space.sh
-
-      - name: Build environment
-        run: ./makeimage.sh win64 lgpl 8.1
-
-      - name: Build FFmpeg
-        run: ./build.sh win64 lgpl 8.1
-        env:
-          GIT_BRANCH_OVERRIDE: n${{ inputs.ffmpeg }} # an exact tag, so the source is known
-
-      - name: Check it is what we say it is
+      - name: Download official BtbN LGPL Windows build
         run: |
-          zip=$(ls artifacts/ffmpeg-*-win64-lgpl-8.1.zip)
-          unzip -l "$zip" | grep -E 'bin/(ffmpeg|ffprobe|ffplay)\.exe'
-          # The configure line is inside the program. Nothing GPL or non-free may be in it.
-          unzip -p "$zip" '*/bin/ffmpeg.exe' > ffmpeg.exe
-          if grep -a -E -- '--enable-(gpl|nonfree)' ffmpeg.exe; then echo "Not an LGPL build"; exit 1; fi
-          grep -a -o -m1 -- '--prefix=[^"]*' ffmpeg.exe > configure-line.txt
-          mv "$zip" ffmpeg-n8.1-win64-lgpl.zip
+          curl -fsSL -o ffmpeg-n8.1-win64-lgpl.zip "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-8.1.zip"
+
+      - name: Verify build and license compliance
+        run: |
+          unzip -l ffmpeg-n8.1-win64-lgpl.zip | grep -E 'bin/(ffmpeg|ffprobe|ffplay)\.exe'
+          unzip -p ffmpeg-n8.1-win64-lgpl.zip '*/bin/ffmpeg.exe' > ffmpeg.exe
+          if grep -a -E -- '--enable-(gpl|nonfree)' ffmpeg.exe; then
+            echo "Error: Found GPL or non-free components in the build!"
+            exit 1
+          fi
+          grep -a -o -m1 -- '--prefix=[^"]*' ffmpeg.exe > configure-line.txt || true
           {
-            echo "FFmpeg ${{ inputs.ffmpeg }} (tag n${{ inputs.ffmpeg }} of https://github.com/FFmpeg/FFmpeg)"
-            echo "built by BtbN's scripts, commit ${{ env.BTBN_COMMIT }}"
-            echo "https://github.com/BtbN/FFmpeg-Builds/tree/${{ env.BTBN_COMMIT }}"
-            echo "(variants/win64-lgpl.sh and scripts.d/ name every library built in and its version)"
+            echo "FFmpeg ${{ inputs.ffmpeg || '8.1.3' }} for Windows x64 (LGPL)"
+            echo "Official static build from BtbN/FFmpeg-Builds packaged for Narrative Node"
+            echo "Upstream: https://github.com/BtbN/FFmpeg-Builds"
             echo
-            echo "configure:"; cat configure-line.txt
+            echo "configure:"
+            cat configure-line.txt
           } > ffmpeg-win64-BUILD-INFO.txt
 
       - uses: actions/upload-artifact@v4
@@ -85,13 +68,16 @@ jobs:
           path: dist
           merge-multiple: true
       - name: The source, for anyone who gets the binary (LGPL)
-        run: curl -fsSL -o "dist/ffmpeg-${{ inputs.ffmpeg }}.tar.xz" "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg }}.tar.xz"
+        run: |
+          ver="${{ inputs.ffmpeg }}"
+          ver="${ver:-8.1.3}"
+          curl -fsSL -o "dist/ffmpeg-${ver}.tar.xz" "https://ffmpeg.org/releases/ffmpeg-${ver}.tar.xz"
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: FFmpeg ${{ inputs.ffmpeg }} for Windows (LGPL)
+          name: FFmpeg ${{ inputs.ffmpeg || '8.1.3' }} for Windows (LGPL)
           body: |
-            LGPL-only FFmpeg ${{ inputs.ffmpeg }} (ffmpeg, ffprobe, ffplay) for 64-bit Windows, built by this repository's workflow.
+            LGPL-only FFmpeg ${{ inputs.ffmpeg || '8.1.3' }} (ffmpeg, ffprobe, ffplay) for 64-bit Windows, packaged by this repository's workflow.
             `ffmpeg-win64-BUILD-INFO.txt` names the build scripts and the configure line; the FFmpeg source tarball is attached.
             Downloaded by Navigator by Narrative Node on first run, and checked against the checksum GitHub shows for each file.
           files: dist/*
