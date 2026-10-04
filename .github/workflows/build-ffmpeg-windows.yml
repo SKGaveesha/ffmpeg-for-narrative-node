@@ -1,0 +1,98 @@
+# Builds an LGPL-only FFmpeg (ffmpeg, ffprobe, ffplay) for 64-bit Windows and publishes
+# it as a GitHub release that Navigator's helper downloads on first run.
+#
+# It runs BtbN's open-source build scripts (MIT, https://github.com/BtbN/FFmpeg-Builds)
+# pinned to one commit, so the build is theirs in method and ours in hosting: the same
+# LGPL configuration the helper used to download, with hardware encoders (NVENC, AMF,
+# Quick Sync) and ffplay, but a release that only we can change or retire.
+#
+# This file belongs in the PUBLIC repository narrative-node-ffmpeg-builds, beside
+# build-ffmpeg-mac.yml. See README.md in this folder.
+name: Build FFmpeg for Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg:
+        description: "FFmpeg release tag to build, without the n (a tag from https://github.com/FFmpeg/FFmpeg/tags)"
+        default: "8.1.3"
+
+permissions:
+  contents: read
+
+env:
+  # The tag the helper reads (helper/src/core/ffmpeg/install.ts). Keep it fixed:
+  # a rebuild replaces the files, so already-shipped helpers keep working.
+  RELEASE_TAG: win-ffmpeg-8.1
+  # The scripts that do the building. Move this on purpose, after reading what changed.
+  BTBN_COMMIT: 9acad4a9ef1583096af7836cc1e9c8cbcb4d3950
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: BtbN/FFmpeg-Builds
+          ref: ${{ env.BTBN_COMMIT }}
+
+      - name: Free disk space
+        run: ./util/free_disk_space.sh
+
+      - name: Build environment
+        run: ./makeimage.sh win64 lgpl 8.1
+
+      - name: Build FFmpeg
+        run: ./build.sh win64 lgpl 8.1
+        env:
+          GIT_BRANCH_OVERRIDE: n${{ inputs.ffmpeg }} # an exact tag, so the source is known
+
+      - name: Check it is what we say it is
+        run: |
+          zip=$(ls artifacts/ffmpeg-*-win64-lgpl-8.1.zip)
+          unzip -l "$zip" | grep -E 'bin/(ffmpeg|ffprobe|ffplay)\.exe'
+          # The configure line is inside the program. Nothing GPL or non-free may be in it.
+          unzip -p "$zip" '*/bin/ffmpeg.exe' > ffmpeg.exe
+          if grep -a -E -- '--enable-(gpl|nonfree)' ffmpeg.exe; then echo "Not an LGPL build"; exit 1; fi
+          grep -a -o -m1 -- '--prefix=[^"]*' ffmpeg.exe > configure-line.txt
+          mv "$zip" ffmpeg-n8.1-win64-lgpl.zip
+          {
+            echo "FFmpeg ${{ inputs.ffmpeg }} (tag n${{ inputs.ffmpeg }} of https://github.com/FFmpeg/FFmpeg)"
+            echo "built by BtbN's scripts, commit ${{ env.BTBN_COMMIT }}"
+            echo "https://github.com/BtbN/FFmpeg-Builds/tree/${{ env.BTBN_COMMIT }}"
+            echo "(variants/win64-lgpl.sh and scripts.d/ name every library built in and its version)"
+            echo
+            echo "configure:"; cat configure-line.txt
+          } > ffmpeg-win64-BUILD-INFO.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            ffmpeg-n8.1-win64-lgpl.zip
+            ffmpeg-win64-BUILD-INFO.txt
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: The source, for anyone who gets the binary (LGPL)
+        run: curl -fsSL -o "dist/ffmpeg-${{ inputs.ffmpeg }}.tar.xz" "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg }}.tar.xz"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: FFmpeg ${{ inputs.ffmpeg }} for Windows (LGPL)
+          body: |
+            LGPL-only FFmpeg ${{ inputs.ffmpeg }} (ffmpeg, ffprobe, ffplay) for 64-bit Windows, built by this repository's workflow.
+            `ffmpeg-win64-BUILD-INFO.txt` names the build scripts and the configure line; the FFmpeg source tarball is attached.
+            Downloaded by Navigator by Narrative Node on first run, and checked against the checksum GitHub shows for each file.
+          files: dist/*
+          overwrite_files: true

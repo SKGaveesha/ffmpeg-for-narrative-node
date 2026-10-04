@@ -1,0 +1,118 @@
+# Builds an LGPL-only FFmpeg (ffmpeg, ffprobe, ffplay) for macOS, arm64 and x64,
+# and publishes it as a GitHub release that Navigator's helper downloads on first run.
+#
+# This file belongs in its own PUBLIC repository (narrative-node-ffmpeg-builds):
+# customers' helpers read the release anonymously, and LGPL asks that the source
+# and build recipe be available to anyone who gets the binary. See README.md in this folder.
+# Lives beside build-ffmpeg-windows.yml.
+name: Build FFmpeg for macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg:
+        description: "FFmpeg version (a release from https://ffmpeg.org/releases/)"
+        default: "8.1.3"
+      sdl:
+        description: "SDL2 version (ffplay's audio output; zlib licence)"
+        default: "2.32.10"
+
+permissions:
+  contents: read
+
+env:
+  # The tag the helper reads (helper/src/core/ffmpeg/install.ts). Keep it fixed:
+  # a rebuild replaces the files, so already-shipped helpers keep working.
+  RELEASE_TAG: mac-ffmpeg-8.1
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, arch: arm64 }
+          - { runner: macos-15-intel, arch: x64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Fetch sources
+        run: |
+          curl -fsSL -O "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg }}.tar.xz"
+          curl -fsSL -O "https://github.com/libsdl-org/SDL/releases/download/release-${{ inputs.sdl }}/SDL2-${{ inputs.sdl }}.tar.gz"
+          tar xf "ffmpeg-${{ inputs.ffmpeg }}.tar.xz"
+          tar xf "SDL2-${{ inputs.sdl }}.tar.gz"
+
+      - name: Tools
+        run: brew install nasm pkg-config
+
+      - name: SDL2, static
+        run: |
+          cd "SDL2-${{ inputs.sdl }}"
+          ./configure --prefix="$PWD/../deps" --disable-shared --enable-static
+          make -j"$(sysctl -n hw.ncpu)" install
+
+      - name: FFmpeg, LGPL only
+        run: |
+          cd "ffmpeg-${{ inputs.ffmpeg }}"
+          export PKG_CONFIG_PATH="$PWD/../deps/lib/pkgconfig"
+          # No --enable-gpl, --enable-version3 or --enable-nonfree, and no external codec
+          # libraries (x264, x265, fdk-aac...): those are what make a build GPL or unshippable.
+          # Hardware encoding and system audio come from macOS itself.
+          ./configure --prefix="$PWD/../out" --pkg-config-flags=--static \
+            --disable-gpl --disable-nonfree --disable-doc --disable-debug --disable-shared --enable-static \
+            --enable-videotoolbox --enable-audiotoolbox --enable-ffplay
+          make -j"$(sysctl -n hw.ncpu)" install
+
+      - name: Check it is what we say it is
+        run: |
+          cd out/bin
+          ./ffmpeg -version | head -3
+          ./ffplay -version | head -1
+          cfg=$(./ffmpeg -version | grep '^configuration:')
+          if echo "$cfg" | grep -E -- '--enable-(gpl|nonfree|version3)'; then echo "Not an LGPL build"; exit 1; fi
+          # Only system libraries may be linked, or the download would not run on a clean Mac.
+          if otool -L ffmpeg ffprobe ffplay | grep -E '/opt/|/usr/local/'; then echo "Links outside macOS"; exit 1; fi
+
+      - name: Package
+        run: |
+          name="ffmpeg-n8.1-macos-${{ matrix.arch }}-lgpl"
+          mkdir -p "$name/bin"
+          cp out/bin/ffmpeg out/bin/ffprobe out/bin/ffplay "$name/bin/"
+          codesign --force --sign - "$name"/bin/*   # Apple Silicon refuses to run a binary with no signature
+          { cat "ffmpeg-${{ inputs.ffmpeg }}/COPYING.LGPLv2.1"; printf '\n\n---- SDL2 (zlib licence) ----\n\n'; cat "SDL2-${{ inputs.sdl }}/LICENSE.txt"; } > "$name/LICENSE.txt"
+          {
+            echo "FFmpeg ${{ inputs.ffmpeg }}, built from https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg }}.tar.xz"
+            echo "with SDL2 ${{ inputs.sdl }} (static), by this repository's workflow."
+            echo
+            out/bin/ffmpeg -version | grep '^configuration:'
+          } > "$name/BUILD-INFO.txt"
+          zip -qry "$name.zip" "$name"   # -y keeps modes; Navigator unpacks it with tar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.arch }}
+          path: ffmpeg-n8.1-macos-*.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: The source, for anyone who gets the binary (LGPL)
+        run: curl -fsSL -o "dist/ffmpeg-${{ inputs.ffmpeg }}.tar.xz" "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg }}.tar.xz"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: FFmpeg ${{ inputs.ffmpeg }} for macOS (LGPL)
+          body: |
+            LGPL-only FFmpeg ${{ inputs.ffmpeg }} (ffmpeg, ffprobe, ffplay) for macOS, built by this repository's workflow.
+            Each zip holds `BUILD-INFO.txt` with the exact configure line; the source tarball is attached.
+            Downloaded by Navigator by Narrative Node on first run, and checked against the checksum GitHub shows for each file.
+          files: dist/*
+          overwrite_files: true
