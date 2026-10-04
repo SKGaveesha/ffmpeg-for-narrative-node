@@ -58,8 +58,14 @@ jobs:
           # No --enable-gpl, --enable-version3 or --enable-nonfree, and no external codec
           # libraries (x264, x265, fdk-aac...): those are what make a build GPL or unshippable.
           # Hardware encoding and system audio come from macOS itself.
+          # --disable-libxcb and --disable-xlib: the runners have Homebrew's X11 installed, and
+          # configure auto-detects it for its Linux screen-capture device. All three programs then
+          # link /opt/homebrew/.../libX11 and libxcb, which a customer's Mac does not have.
+          # --disable-lzma: on the Intel runner /usr/local/lib is on the default linker path, so
+          # configure also picks up Homebrew's xz (liblzma) there. Only the Intel job showed it.
           ./configure --prefix="$PWD/../out" --pkg-config-flags=--static \
             --disable-gpl --disable-nonfree --disable-doc --disable-debug --disable-shared --enable-static \
+            --disable-libxcb --disable-xlib --disable-lzma \
             --enable-videotoolbox --enable-audiotoolbox --enable-ffplay
           make -j"$(sysctl -n hw.ncpu)" install
 

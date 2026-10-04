@@ -1,8 +1,8 @@
 # Our own ffmpeg, for Windows and Mac
 
-Navigator's Sentinel downloads ffmpeg, ffprobe and ffplay on first run, from a public GitHub repository that we control: `SKGaveesha/narrative-node-ffmpeg-builds`. Both builds are LGPL-only, so a paid product can use them. Owning the hosting means nobody else can rename or retire the file a customer's helper is looking for.
+Navigator's installers carry ffmpeg, ffprobe and ffplay, fetched at build time from a public GitHub repository that we control (and the helper downloads them from it on first run if an install has no copy): `SKGaveesha/narrative-node-ffmpeg-builds`. Both builds are LGPL-only, so a paid product can use them. Owning the hosting means nobody else can rename or retire the file a customer's helper is looking for.
 
-| | Workflow | How | Release the Sentinel reads | File |
+| | Workflow | How | Release the helper reads | File |
 |:--|:--|:--|:--|:--|
 | Windows x64 | `build-ffmpeg-windows.yml` | BtbN's open-source build scripts, pinned to one commit | `win-ffmpeg-8.1` | `ffmpeg-n8.1-win64-lgpl.zip` |
 | macOS arm64, x64 | `build-ffmpeg-mac.yml` | compiled directly on Mac runners | `mac-ffmpeg-8.1` | `ffmpeg-n8.1-macos-<arch>-lgpl.zip` |
@@ -24,5 +24,8 @@ Run a workflow again with a newer FFmpeg version. The release tag stays the same
 
 ## Why LGPL, and what we owe
 
-Neither build uses `--enable-gpl` or `--enable-nonfree`, and both workflows fail if the finished program says otherwise. LGPL asks us to let anyone who has the binary get the source and the build recipe: each release carries the FFmpeg source tarball and a `BUILD-INFO` file naming the exact scripts and configure line. Nothing is inside the Navigator installer; it is downloaded from that repository.
+Neither build uses `--enable-gpl` or `--enable-nonfree`, and both workflows fail if the finished program says otherwise. LGPL asks us to let anyone who has the binary get the source and the build recipe: each release carries the FFmpeg source tarball and a `BUILD-INFO` file naming the exact scripts and configure line. The Navigator installers carry the unmodified binaries with `LICENSE.txt` and a `SOURCE.txt` that points back to these releases, which is how the source offer reaches customers. Anyone can replace the binaries by dropping their own build into the `ffmpeg` folder beside the helper.
 
+## Not tested on real machines
+
+The Mac workflow compiles on Mac runners and the Windows one cross-compiles on Linux; neither has been run yet, so the first run may need a small fix. After it, on a clean Windows PC and on both an Apple Silicon and an Intel Mac, check that `ffmpeg -version` and `ffplay -version` run, that Navigator downloads the tools, plays audio, and that an export with a hardware encoder works.
